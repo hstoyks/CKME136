@@ -1,0 +1,162 @@
+---
+title: "European Hotel"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+Import dataset
+
+```{r}
+raw_data <- read.csv(file="E:/CKME 136/515k-hotel-reviews-data-in-europe/Hotel_Reviews.csv", header = TRUE, sep=',')
+
+```
+
+Install and load required packages
+```{r}
+install.packages("ggplot2")
+library(ggplot2)
+```
+```{r}
+install.packages("dplyr")
+library(dplyr)
+
+install.packages("tidyverse")
+library(tidyverse)
+```
+```{r}
+install.packages("corrplot")
+library(corrplot)
+```
+
+
+
+Investigate data
+
+```{r}
+head(raw_data)
+#17 columns
+```
+
+
+```{r}
+#Any missing values? 6538 missing values
+sum(is.na(raw_data))
+sum(is.na(raw_data$lat))
+sum(is.na(raw_data$lng))
+
+#All missing data is located in the latitude and longitude columns
+```
+
+
+```{r}
+
+#How many unique hotels were reviewed? 1492
+length(unique(raw_data$Hotel_Name))
+
+```
+
+
+
+Univariate Analysis
+
+```{r}
+#Average Score
+x <-hist(raw_data$Average_Score, 
+     main="Histogram for Average Score",
+     xlab="Average Score",
+     col="red",
+     xlim=c(6,10),
+     las=1,
+     breaks=c(5, seq(7, 10, 0.25)))
+
+#What does density indicate?
+
+
+y <- ggplot(data=raw_data, aes(raw_data$Average_Score))+
+  geom_histogram(breaks=seq(6, 10, by=0.5),
+                 col="red",
+                 fill="red",
+                 alpha=0.2)+
+  labs(title="Histogram for Average Score", x="Average Score", y="Count")+
+  geom_density(col=2) +
+  xlim(c(5,10)) +
+  ylim(c(0,200000))
+
+#Minimum average score and max average score
+
+min(raw_data$Average_Score)
+#5.2
+max(raw_data$Average_Score)
+#9.8
+
+
+```
+
+```{r}
+#Reviewer Score
+ggplot(data=raw_data, aes(raw_data$Reviewer_Score))+
+  geom_histogram(breaks=seq(2, 10, by=0.5),
+                 col="red",
+                 fill="red",
+                 alpha=0.2)+
+  labs(title="Histogram for Reviewer Score", x="Reviewer Score", y="Count")+
+  geom_density(col=2) +
+  xlim(c(2,10)) +
+  ylim(c(0,200000))
+
+min(raw_data$Reviewer_Score)
+#2.5
+max(raw_data$Reviewer_Score)
+#10
+```
+
+```{r}
+#Reviewer Nationality
+
+length(unique(raw_data$Reviewer_Nationality))
+#227 nationalities have reviewed this dataset
+
+#Plot top 10 reviewer nationalities
+
+nationalities <- raw_data %>%
+  group_by(Reviewer_Nationality) %>%
+  mutate(group_num = n()) %>%
+  dplyr::filter(group_num>=25)
+
+#view the distribution
+
+table(nationalities$group_num)
+
+#plot this data
+
+ggplot(subset(nationalities, group_num>=6000)) +
+  geom_bar(aes(fct_infreq(Reviewer_Nationality)), stat= 'count') +
+  ggtitle('Reviewer Nationality') +
+  theme(axis.text.x = element_text(angle = 90, hjust=0.5))
+
+```
+
+```{r}
+str(raw_data)
+#Remove categorical variables to perform correlation analysis
+df <- subset(raw_data, select = -c(Hotel_Address, Additional_Number_of_Scoring, Review_Date, Hotel_Name, Tags, days_since_review, Reviewer_Nationality, Negative_Review, Positive_Review, lat, lng))
+
+
+M <-cor(df)
+colnames(M) <- c("Avg_Score", "Neg_Word_Count", "Total_Reviews", "Pos_Word_Count", "Num_of_Reviewer_Reviews", "Reviewer_Score")
+rownames(M) <- c("Avg_Score", "Neg_Word_Count", "Total_Reviews", "Pos_Word_Count", "Num_of_Reviewer_Reviews", "Reviewer_Score")
+
+corrplot(M, method=c("pie"))
+```
+
