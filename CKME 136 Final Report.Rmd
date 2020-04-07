@@ -1,0 +1,867 @@
+---
+title: "CKME 136 Final"
+output: word_document
+---
+
+Import dataset
+
+```{r}
+raw_data <- read.csv(file="E:/CKME 136/515k-hotel-reviews-data-in-europe/Hotel_Reviews.csv", header = TRUE, sep=',', stringsAsFactors = FALSE)
+```
+
+Install and load required packages
+```{r}
+#install.packages("ggplot2")
+#install.packages("stringr")
+#install.packages("dplyr")
+#install.packages("tidyverse")
+#install.packages("rlang")
+#install.packages("hexbin")
+#install.packages("tm")
+#install.packages("tidyverse")
+#install.packages("tidytext")
+#install.packages("wordcloud")
+#install.packages("textdata")
+#install.packages("topicmodels")
+#install.packages("ldatuning")
+#install.packages(SnowballC)
+#install.packages("RColorBrewer")
+#install.packages("textmineR")
+#install.packages("doSNOW")
+#install.packages("doParallel") 
+library(ggplot2)
+library(stringr)     
+library(dplyr)
+library(tidyverse)
+library(rlang)
+library(corrplot)
+library(hexbin)
+library(tm)
+library(tidyverse)
+library(tidytext)
+library(wordcloud)
+library(textdata)
+library(topicmodels)
+library(ldatuning)
+library(SnowballC)
+library(topicmodels)
+library(ldatuning)
+library(RColorBrewer)
+library(textmineR)
+library(doSNOW)
+library(doParallel)
+```
+
+
+Investigate data
+```{r}
+head(raw_data)
+#17 columns
+
+summary(raw_data)
+
+#Observations
+
+#Hotel_Address: unique characteristic
+
+#Additional_Number_of_Scoring : Minimum 1, maximum 2,692. This indicates the scoring provided on the hotel without a review. Will have to review to understand this attribute more.
+
+#Review Date: Will review to see what time period these reviews span
+
+#Average score: the minumum average score of a hotel is 5.2 and the max is 9.8. The median is 8.4 and the mean is approx 8.4. This shows that overall to be considered an "exceptional" hotel the average score should be above 9 as over 75% hotels receive an average rating over 8.
+
+#Hotel Name: Also a unique identifier like hotel address
+
+#Nationality: factor, will analyze most popular nationalities 
+#Negative Review: Character
+
+#Words in negative reviews: ranges from 0 to 408. Average is approximately 18.
+
+#Total number of reviews: ranges from 43 to 16670. A good mix of popular (reviewed frequently) hotels and less reviewed hotels. The average is 2744 reviews. 
+
+#Positive Review: Character
+
+#Words in positive reviews: ranges from 0 to 398. Average is approximately 18. Very similar to number of words in negative reviews. 
+
+#Total number of reviews reviewer has given: Ranges from 1 to 355. It looks as though many reviewers tend to only leave 1 review. This is evident by comparing the median (3) to the mean (7.2). There are some outliers that have left 355 reviews. 
+
+#Reviewer score: Minumum score of 2.5 to 10. The median score is 8.8 and the mean scor is 8.395. Because the median of the reviewer score is higher than the median of the average score, this dataset looks as though the sample taken have higher individual scores than what is normally rated. 
+
+#Days since review: some reviews were left the day before the data was scraped. Looks like the dataset provided would provide timely relevant information.
+
+#Latitude and longitude: 3268 missing values from each
+
+str(raw_data)
+
+#227 different nationalities sampled
+#There are 17 hotels that are missing latitude and longitude.
+
+#All missing data is located in the latitude and longitude columns. I have chosen to not remove any of the missing hotels as I will be focusing on the text of the reviews and the exact location will not affect my analysis. 
+
+```
+
+Initial analysis of Address column
+
+```{r}
+#How many unique hotels were reviewed? 1492
+length(unique(raw_data$Hotel_Name))
+```
+
+```{r}
+#Which countries are used for this dataset?
+hotel_details <- raw_data%>%
+  select(Hotel_Name,lat,lng,Hotel_Address)%>%
+  group_by(Hotel_Address)%>%
+  filter(!duplicated(Hotel_Address))
+
+hotel_details$country <- sapply(str_split(hotel_details$Hotel_Address," "),function(x){x[length(x)]})
+
+hotel_details$city <- sapply(str_split(hotel_details$Hotel_Address," "),function(x){x[length(x)-1]})
+hotel_details$city<- str_replace(hotel_details$city,"United","London")
+
+hotel_details$country<- str_replace(hotel_details$country,"Kingdom","United Kingdom")
+
+data <- raw_data%>%
+  left_join(hotel_details[,4:6],by = 'Hotel_Address')
+countries<- paste(unique(hotel_details$country),collapse=",")
+cities<- paste(unique(hotel_details$city),collapse=",")
+
+#The cities that were sampled from in this dataset were Amsterdam, London, Paris, Barcelona, Milan and Vienna.
+#Let's visualize the distribution of the different countries and cities
+
+ggplot(data=data, aes(city))+
+  geom_bar(
+                 col="red",
+                 fill="red",
+                 alpha=0.2)+
+  labs(title="Number of Samples Taken From Each City", x="City", y="Count")+
+  geom_density(col=2) 
+
+#As we can see, most reviews sampled were for hotels located in London
+```
+
+Univariate Analysis
+
+```{r}
+#Average Score
+
+data%>%
+  select(Average_Score,Hotel_Address)%>%
+  distinct(Average_Score,Hotel_Address)%>%
+  ggplot(aes(x=Average_Score))+
+  geom_histogram(color='blue',fill='blue',alpha=0.3,bins=30)+
+  xlab("Average Review Score")+ylab("Counts")
+
+#Minimum average score and max average score
+
+min(raw_data$Average_Score)
+#5.2
+max(raw_data$Average_Score)
+#9.8
+by_hotel <- raw_data %>% group_by(Hotel_Address)
+mean(by_hotel$Average_Score)
+#8.4
+sd(by_hotel$Average_Score)
+#0.54
+
+perc<-names(quantile(data$Average_Score,seq(0.01,0.99,0.01)))
+score<-unname(quantile(data$Average_Score,seq(0.01,0.99,0.01)))
+d <-data.frame(percentile=perc,score=score)
+print("Top rating scores are:")
+d%>%
+  arrange(desc(score))%>%
+  head(5)
+
+print("Bottom rating scores are:")
+d%>%
+  arrange(score)%>%
+  head(5)
+```
+
+Inital analysis of Reviewer Score
+```{r}
+#Reviewer Score
+ggplot(data=raw_data, aes(Reviewer_Score))+
+  geom_histogram(breaks=seq(2, 10, by=0.5),
+                 col="red",
+                 fill="red",
+                 alpha=0.2)+
+  labs(title="Histogram for Reviewer Score", x="Reviewer Score", y="Count")+
+  geom_density(col=2) +
+  xlim(c(2,10)) +
+  ylim(c(0,200000))
+
+min(raw_data$Reviewer_Score)
+#2.5
+max(raw_data$Reviewer_Score)
+#10
+mean(raw_data$Reviewer_Score)
+#8.4
+sd(raw_data$Reviewer_Score)
+#1.64
+
+#Most reviews are above 9 and the average review is 8.4
+```
+
+```{r}
+#Reviewer Nationality
+
+#Plot top 10 reviewer nationalities
+
+nationalities <- raw_data %>%
+  group_by(Reviewer_Nationality) %>%
+  mutate(group_num = n()) %>%
+  dplyr::filter(group_num>=25)
+
+#plot this data
+
+ggplot(subset(nationalities, group_num>=6000)) +
+  geom_bar(aes(fct_infreq(Reviewer_Nationality)), stat= 'count') +
+  ggtitle('Reviewer Nationality') +
+  theme(axis.text.x = element_text(angle = 90, hjust=0.5))
+
+#By far, the most common place the reviewer is from is the United Kingdom
+```
+
+Bivariate Analysis
+
+```{r}
+#Remove categorical variables to perform correlation analysis
+df <- subset(raw_data, select = -c(Hotel_Address, Additional_Number_of_Scoring, Review_Date, Hotel_Name, Tags, days_since_review, Reviewer_Nationality, Negative_Review, Positive_Review, lat, lng))
+
+
+M <-cor(df)
+colnames(M) <- c("Avg_Score", "Neg_Word_Count", "Total_Reviews", "Pos_Word_Count", "Num_of_Reviewer_Reviews", "Reviewer_Score")
+rownames(M) <- c("Avg_Score", "Neg_Word_Count", "Total_Reviews", "Pos_Word_Count", "Num_of_Reviewer_Reviews", "Reviewer_Score")
+
+corrplot(M, method=c("pie"))
+```
+
+Explore the relationship between variables further
+
+```{r}
+require(stats)
+reg<-lm(Average_Score ~ Total_Number_of_Reviews, data = df)
+reg
+summary(reg)
+
+#R squared is nearly zero and there doesn't appear to be a relationship between the average review of a hotel and the number of reviews a hotel has. Whether or not a hotel has many reviews or is very popular does not affect the rating
+
+ggplot(df, aes(x=Average_Score, y=Total_Number_of_Reviews)) +
+  geom_hex(bins = 50) +
+  geom_abline(intercept = 8.514, slope = -4.247, color = "red", size = 1.25) +
+  ggtitle("Average Score vs Total Number of Reviews") +
+  xlab("Average Score")+
+  ylab("Total Number of Reviews")
+```
+
+```{r}
+reg1<-lm(Reviewer_Score ~ Total_Number_of_Reviews_Reviewer_Has_Given, data = df)
+reg1
+summary(reg1)
+#R squared is nearly 0 and there doesn't appear to be a relationship between the individual reviewer score of a hotel and the number of reviews that reviewer has left. 
+
+ggplot(df, aes(x=Reviewer_Score, y=Total_Number_of_Reviews_Reviewer_Has_Given)) +
+  geom_hex(bins = 50) +
+  geom_abline(intercept = 8.39, slope = 0.004, color = "red", size = 1.25) +
+  ggtitle("Reviewer Score vs Number of Reviews (Reviewer)") +
+  xlab("Reviewer Score")+
+  ylab("Total Number of Reviews Reviewer has Given")
+```
+
+Initial Text Analysis
+
+Negative Reviews
+
+```{r}
+#Create custom stop words
+custom_stop_words <- tribble(
+  # Column names should match stop_words
+  ~word, ~lexicon,
+  # Add negative and hotel as custom stop words
+  "hotel", "CUSTOM",
+  "negative", "CUSTOM",
+  "positive", "CUSTOM"
+)
+
+#Add custom stop words to stop words
+stop_words2 <- stop_words %>% 
+  bind_rows(custom_stop_words)
+```
+
+```{r}
+#tidy the dataframe for negative reviews
+
+tidy_neg_reviews <- data %>%
+  mutate(id = row_number()) %>%
+  #tokenize text
+  unnest_tokens(word, Negative_Review) %>%
+  #remove stop words
+  anti_join(stop_words2)
+
+neg_word_count <- tidy_neg_reviews %>% 
+  # Compute word counts
+  count(word) %>% 
+  # Arrange the counts in descending order
+  arrange(desc(n)) %>%
+  filter(n > 15000) %>%
+    # Reorder word as an ordered factor by word counts
+  mutate(word2 = fct_reorder(word, n))
+
+# Create a bar plot using the new word_counts
+ggplot(neg_word_count, aes(x=word2, y=n)) +
+  geom_col() +
+  coord_flip() +
+  # Title the plot "Negative Word Counts"
+  ggtitle("Negative Word Counts") +
+  xlab("Frequency") +
+  ylab("word")
+
+#The words used most often in negative reviews were breakfast, staff, bed, bit, bathroom and didn't
+```
+Positive
+```{r}
+#tidy the dataframe for negative reviews
+
+tidy_pos_reviews <- data %>%
+  mutate(id = row_number()) %>%
+  #tokenize text
+  unnest_tokens(word, Positive_Review) %>%
+  #remove stop words
+  anti_join(stop_words2)
+
+pos_word_count <- tidy_pos_reviews %>% 
+  # Compute word counts
+  count(word) %>% 
+  # Arrange the counts in descending order
+  arrange(desc(n)) %>%
+  filter(n > 25000) %>%
+    # Reorder word as an ordered factor by word counts
+  mutate(word2 = fct_reorder(word, n))
+
+# Create a bar plot using the new word_counts
+ggplot(pos_word_count, aes(x=word2, y=n)) +
+  geom_col() +
+  coord_flip() +
+  # Title the plot "Positive Word Counts"
+  ggtitle("Positive Word Counts") +
+  xlab("Frequency") +
+  ylab("word")
+
+#The words used most often in negative reviews were staff, location, friendly, breakfast and helpful.
+```
+
+
+```{r}
+neg_word_count_country <- tidy_neg_reviews %>%
+  # Count words by whether or not its a complaint
+  count(word, country) %>%
+  # Group by whether or not its a complaint
+  group_by(country) %>%
+  # Keep the top 20 words
+  top_n(10, n) %>%
+  # Ungroup before reordering word as a factor by the count
+  ungroup() %>%
+  mutate(word2 = fct_reorder(word, n))
+
+# Include a color aesthetic tied to the country
+ggplot(neg_word_count_country, aes(x = word2, y = n, fill=country)) +
+  # Don't include the lengend for the column plot
+  geom_col(show.legend = FALSE) +
+  # Facet by whether or not its a complaint and make the y-axis free
+  facet_wrap(~country, scales = "free_y") +
+  # Flip the coordinates and add a title: "Country Word Counts"
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust=0.5)) +
+  ggtitle("Country Word Counts (Negative Reviews)") +
+  xlab("Word") +
+  ylab("Frequency")
+
+#Across all countries it appears as though the most freqent word used in negative reviews is breakfast. The Netherlands was the only country to have the word "expensive" frequently used, perhaps indicating there is a lack of value to hotels in Amsterdam. Spain was the only country to have the word "pool" frequently used in negative reviews. Maybe the hotel sampled didn't have a very nice pool. Austria was the only country to have the word "parking" frequently used in negative reviews. Italy was the only country to have the word "location" frequently used in negative reviews.
+```
+
+```{r}
+
+pos_word_count_country <- tidy_pos_reviews %>%
+  # Count words by which country is relates to
+  count(word, country) %>%
+  # Group by whether or not its a complaint
+  group_by(country) %>%
+  # Keep the top 20 words
+  top_n(10, n) %>%
+  # Ungroup before reordering word as a factor by the count
+  ungroup() %>%
+  mutate(word3 = fct_reorder(word, n))
+
+# Include a color aesthetic tied to the country
+ggplot(pos_word_count_country, aes(x = word3, y = n, fill=country)) +
+  # Don't include the lengend for the column plot
+  geom_col(show.legend = FALSE) +
+  # Facet by whether or not its a complaint and make the y-axis free
+  facet_wrap(~country, scales = "free_y") +
+  # Flip the coordinates and add a title: "Country Word Counts"
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, hjust=0.5)) +
+  ggtitle("Country Word Counts (Positive Reviews)") +
+  xlab("Word") +
+  ylab("Frequency")
+
+```
+
+
+```{r}
+#Creating Negative wordcloud
+# Compute word counts and assign to word_counts
+word_count_cloud_neg <- tidy_neg_reviews %>% 
+  count(word)
+
+wordcloud(
+  # Assign the word column to words
+  words = word_count_cloud_neg$word, 
+  # Assign the count column to freq
+  freq = word_count_cloud_neg$n,
+  colors=brewer.pal(8, "YlOrRd"),
+  scale=c(3.5,0.25),
+  max.words = 35
+)
+
+```
+
+```{r}
+#Creating Positive wordcloud
+# Compute word counts and assign to word_counts
+word_count_cloud_pos <- tidy_pos_reviews %>% 
+  count(word)
+
+wordcloud(
+  # Assign the word column to words
+  words = word_count_cloud_pos$word, 
+  # Assign the count column to freq
+  freq = word_count_cloud_pos$n,
+  colors=brewer.pal(8, "GnBu"),
+  scale=c(3.5,0.25),
+  max.words = 35
+)
+```
+
+Sentiment Analysis
+
+```{r}
+sentiment_neg_reviews <- tidy_neg_reviews %>% 
+  # Append the bing sentiment dictionary
+  inner_join(get_sentiments("bing")) %>% 
+  # Count by country and sentiment
+  count(country, sentiment) %>% 
+  # Spread the sentiment and count columns
+  spread(sentiment, n) %>% 
+  # Compute overall_sentiment = positive - negative
+  mutate(overall_sentiment = (positive-negative))
+
+# Create a bar plot out of overall sentiment by complaint label, colored by complaint label as a factor
+ggplot(
+  sentiment_neg_reviews, 
+  aes(x = country, y = overall_sentiment, fill = as.factor(country))
+) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() + 
+  labs(
+    title = "Overall Sentiment by Country (Negative)",
+    subtitle = "Booking.com Review Data",
+    y = "Overall Sentiment"
+  )
+```
+
+```{r}
+sentiment_pos_reviews <- tidy_pos_reviews %>% 
+  # Append the bing sentiment dictionary
+  inner_join(get_sentiments("bing")) %>% 
+  # Count by country and sentiment
+  count(country, sentiment) %>% 
+  # Spread the sentiment and count columns
+  spread(sentiment, n) %>% 
+  # Compute overall_sentiment = positive - negative
+  mutate(overall_sentiment = (positive-negative))
+
+# Create a bar plot out of overall sentiment by complaint label, colored by complaint label as a factor
+ggplot(
+  sentiment_pos_reviews, 
+  aes(x = country, y = overall_sentiment, fill = as.factor(country))
+) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() + 
+  labs(
+    title = "Overall Sentiment by Country",
+    subtitle = "Booking.com Review Data (Positive Reviews)",
+    y = "Overall Sentiment"
+  )
+```
+
+LDA
+
+```{r}
+#Data cleaning, removing all columns that will not be used
+neg_df <- data[-c(2:6,8:17)]
+#Remove all rows with the Negative Review "No Negative"
+neg_df <- neg_df[!(neg_df$Negative_Review=="No Negative"),]
+
+pos_df <- data[-c(2:9,11:17)]
+#Remove all rows with the Negative Review "No Negative"
+pos_df <- pos_df[!(pos_df$Positive_Review=="No Positive"),]
+
+```
+
+```{r}
+set.seed(12345) 
+
+#70/30 split
+sampling_neg <- sample(1:387848, replace = FALSE,size = nrow(neg_df)*0.7 )
+train_data_neg <- neg_df[sampling_neg,]
+
+#It was taking too long to process the data, I will take 10% of the original sample
+sample_neg_train <- sample(1:271493, replace = FALSE,size = nrow(train_data_neg)*0.1 )
+sample_train_data_neg <- train_data_neg[sample_neg_train,]
+
+
+
+test_data_neg <- neg_df[-sampling_neg,]
+sample_neg_test <- sample(1:11635, replace = FALSE,size = nrow(test_data_neg)*0.1 )
+sample_test_data_neg <- test_data_neg[sample_neg_test,]
+
+
+sample_total_dtm_neg <- rbind(sample_train_data_neg, sample_test_data_neg)
+```
+
+```{r}
+sampling_pos <- sample(1:479792, replace = FALSE,size = nrow(pos_df)*0.7 )
+train_data_pos <- pos_df[sampling_pos,]
+
+#It was taking too long to process the data, I will take 10% of the original sample
+sample_pos_train <- sample(1:335854, replace = FALSE,size = nrow(train_data_pos)*0.1 )
+sample_train_data_pos <- train_data_pos[sample_pos_train,]
+
+
+test_data_pos <- pos_df[-sampling_pos,]
+sample_test_pos <- sample(1:143938, replace = FALSE,size = nrow(test_data_pos)*0.1 )
+sample_test_data_pos <- test_data_pos[sample_test_pos,]
+
+sample_total_dtm_pos <- rbind(sample_train_data_pos, sample_test_data_pos)
+```
+
+```{r}
+#DTM for training data
+
+dtm_train_neg <- sample_train_data_neg %>% unnest_tokens(input=Negative_Review, output=word) %>% 
+  mutate(id = row_number()) %>%
+   anti_join(stop_words) %>% 
+  mutate(word_stem = wordStem(word)) %>%
+   # Count occurences within documents
+   count(id, word_stem) %>%
+   # Group the data
+   group_by(word_stem) %>% 
+   # Ungroup the data andreate a document term matrix
+   ungroup() %>% 
+   cast_dtm(document=id, term=word_stem, value=n)
+
+dtm_train_pos <- sample_train_data_pos %>% unnest_tokens(input=Positive_Review, output=word) %>% 
+  mutate(id = row_number()) %>%
+   anti_join(stop_words) %>% 
+  mutate(word_stem = wordStem(word)) %>%
+   # Count occurences within documents
+   count(id, word_stem) %>%
+   # Group the data
+   group_by(word_stem) %>% 
+   # Ungroup the data andreate a document term matrix
+   ungroup() %>% 
+   cast_dtm(document=id, term=word_stem, value=n)
+```
+
+```{r}
+#DTM for test data
+dtm_test_neg <- sample_test_data_neg %>% unnest_tokens(input=Negative_Review, output=word) %>% 
+  mutate(id = row_number()) %>%
+   anti_join(stop_words) %>% 
+   mutate(word_stem = wordStem(word)) %>%
+   # Count occurences within documents
+   count(id, word_stem) %>%
+   # Group the data
+   group_by(word_stem) %>% 
+   # Ungroup the data andreate a document term matrix
+   ungroup() %>% 
+   cast_dtm(document=id, term=word_stem, value=n)
+
+#DTM for test data
+dtm_test_pos <- sample_test_data_pos %>% unnest_tokens(input=Positive_Review, output=word) %>% 
+  mutate(id = row_number()) %>%
+   anti_join(stop_words) %>% 
+  mutate(word_stem = wordStem(word)) %>%
+   # Count occurences within documents
+   count(id, word_stem) %>%
+   # Group the data
+   group_by(word_stem) %>% 
+   # Ungroup the data andreate a document term matrix
+   ungroup() %>% 
+   cast_dtm(document=id, term=word_stem, value=n)
+```
+
+```{r}
+#DTM for total data
+dtm_total_neg <- sample_total_dtm_neg %>% unnest_tokens(input=Negative_Review, output=word) %>% 
+  mutate(id = row_number()) %>%
+   anti_join(stop_words) %>% 
+  mutate(word_stem = wordStem(word)) %>%
+   # Count occurences within documents
+   count(id, word_stem) %>%
+   # Group the data
+   group_by(word_stem) %>% 
+   # Ungroup the data andreate a document term matrix
+   ungroup() %>% 
+   cast_dtm(document=id, term=word_stem, value=n)
+
+dtm_total_pos <- sample_total_dtm_pos %>% unnest_tokens(input=Positive_Review, output=word) %>% 
+  mutate(id = row_number()) %>%
+   anti_join(stop_words) %>% 
+  mutate(word_stem = wordStem(word)) %>%
+   # Count occurences within documents
+   count(id, word_stem) %>%
+   # Group the data
+   group_by(word_stem) %>% 
+   # Ungroup the data andreate a document term matrix
+   ungroup() %>% 
+   cast_dtm(document=id, term=word_stem, value=n)
+```
+
+
+Finding the best number of topics
+
+```{r}
+result_neg <- FindTopicsNumber(
+  dtm_train_neg,
+  topics = seq(from = 2, to = 30, by = 1),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  mc.cores = 2L,
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(result_neg)
+
+result_pos <- FindTopicsNumber(
+  dtm_train_pos,
+  topics = seq(from = 2, to = 30, by = 1),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  mc.cores = 2L,
+  verbose = TRUE
+)
+
+FindTopicsNumber_plot(result_pos)
+
+topic_num_neg <-
+  result_neg$topics[min(which.min(result_neg$CaoJuan2009),
+                    which.min(result_neg$Arun2010),
+                    which.max(result_neg$Griffiths2004),
+                    which.max(result_neg$Deveaud2014))]
+                    
+print(paste("The optimum number of topics for the data set is ",topic_num_neg))
+
+topic_num_pos <-
+  result_pos$topics[min(which.min(result_pos$CaoJuan2009),
+                    which.min(result_pos$Arun2010),
+                    which.max(result_pos$Griffiths2004),
+                    which.max(result_pos$Deveaud2014))]
+                    
+print(paste("The optimum number of topics for the data set is ",topic_num_pos))
+```
+
+Testing perplexity on the training and test set
+
+```{r}
+perplexity_neg_df <- data.frame(train=numeric(), test=numeric())
+topics <- c(2:30)
+burnin = 100
+iter = 1000
+keep = 50
+
+set.seed(12345)
+for (i in topics){
+  fitted <- LDA(dtm_train_neg, k = i, method = "Gibbs",
+                control = list(burnin = burnin, iter = iter, keep = keep))
+  perplexity_neg_df[i,1] <- perplexity(fitted, newdata = dtm_train_neg)
+  perplexity_neg_df[i,2]  <- perplexity(fitted, newdata = dtm_test_neg) 
+}
+
+
+##plotting the perplexity of both train and test
+
+g2 <- ggplot(data=perplexity_neg_df, aes(x= as.numeric(row.names(perplexity_neg_df)))) + labs(y="Perplexity",x="Number of topics") + ggtitle("Perplexity of hold out  and training data (negative)")
+
+g2 <- g2 + geom_line(aes(y=test), colour="red")
+g2 <- g2 + geom_line(aes(y=train), colour="green")
+g2
+
+```
+
+```{r}
+perplexity_pos_df <- data.frame(train=numeric(), test=numeric())
+
+set.seed(12345)
+for (i in topics){
+  fitted <- LDA(dtm_train_pos, k = i, method = "Gibbs",
+                control = list(burnin = burnin, iter = iter, keep = keep))
+  perplexity_pos_df[i,1] <- perplexity(fitted, newdata = dtm_train_pos)
+  perplexity_pos_df[i,2]  <- perplexity(fitted, newdata = dtm_test_pos) 
+}
+
+
+##plotting the perplexity of both train and test
+
+g <- ggplot(data=perplexity_pos_df, aes(x= as.numeric(row.names(perplexity_pos_df)))) + labs(y="Perplexity",x="Number of topics") + ggtitle("Perplexity of hold out  and training data(positve)")
+
+g <- g + geom_line(aes(y=test), colour="red")
+g <- g + geom_line(aes(y=train), colour="green")
+g
+```
+
+Using 5-fold Cross-Validation to test the number of potential topics
+
+```{r}
+
+#review the 25,786 part how many rows are in dtm_total_neg
+folds <- 5
+splitfolds <- sample(1:folds, 38784, replace = TRUE)
+candidate_k <- c(2:20)
+
+system.time({
+  results_neg <- foreach(j = 1:length(candidate_k), .combine = rbind) %dopar%{
+    k <- candidate_k[j]
+    results_1k_neg <- matrix(0, nrow = folds, ncol = 2)
+    colnames(results_1k_neg) <- c("k", "perplexity")
+    for(i in 1:folds){
+      train_set_neg <- dtm_total_neg[splitfolds != i , ]
+      valid_set_neg <- dtm_total_neg[splitfolds == i, ]
+      
+      fitted <- LDA(train_set_neg, k = k, method = "Gibbs",
+                    control = list(burnin = burnin, iter = iter, keep = keep) )
+      results_1k_neg[i,] <- c(k, perplexity(fitted, newdata = valid_set_neg))
+    }
+    return(results_1k_neg)
+  }
+})
+```
+
+```{r}
+splitfolds <- sample(1:folds, 47978, replace = TRUE)
+candidate_k <- c(2:20)
+
+system.time({
+  results <- foreach(j = 1:length(candidate_k), .combine = rbind) %dopar%{
+    k <- candidate_k[j]
+    results_1k_pos <- matrix(0, nrow = folds, ncol = 2)
+    colnames(results_1k) <- c("k", "perplexity")
+    for(i in 1:folds){
+      train_set_pos <- dtm_total_pos[splitfolds != i , ]
+      valid_set_pos <- dtm_total_pos[splitfolds == i, ]
+      
+      fitted <- LDA(train_set_pos, k = k, method = "Gibbs",
+                    control = list(burnin = burnin, iter = iter, keep = keep) )
+      results_1k[i,] <- c(k, perplexity(fitted, newdata = valid_set_pos))
+    }
+    return(results_1k_pos)
+  }
+})
+```
+
+```{r}
+results_df_neg <- as.data.frame(results_1k_neg)
+
+ggplot(results_df_neg, aes(x = k, y = perplexity)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  ggtitle("5-fold cross-validation of topic modeling with the Negative dataset",
+          "(ie five different models fit for each candidate number of topics)") +
+  labs(x = "Candidate number of topics", y = "Perplexity when fitting the trained model to the hold-out set (negative)")
+
+results_df_pos <- as.data.frame(results_1k_pos)
+
+ggplot(results_df_pos, aes(x = k, y = perplexity)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  ggtitle("5-fold cross-validation of topic modeling with the Positive dataset",
+          "(ie five different models fit for each candidate number of topics)") +
+  labs(x = "Candidate number of topics", y = "Perplexity when fitting the trained model to the hold-out set(positive)")
+```
+
+
+LDA for Negative Reviews
+
+```{r}
+lda_out13_neg<- LDA(
+  dtm_total_neg,
+  k = 13,
+  method = "Gibbs",
+  control = list(seed = 42)
+)
+
+terms(lda_out13_neg)
+
+x_neg <- topics(lda_out13_neg)
+new.df_neg <- data.frame('response'=names(x), 'topic'=x, row.names=NULL)
+count(new.df_neg, topic)
+
+topics13_neg <- tidy(lda_out13_neg, matrix = "beta")
+
+top_terms_neg <- topics13_neg %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+
+top_terms_neg
+
+top_terms_neg %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
+LDA for Positive Reviews
+```{r}
+lda_out10_pos <- LDA(
+  dtm_total_pos,
+  k = 10,
+  method = "Gibbs",
+  control = list(seed = 42)
+)
+
+terms(lda_out10_pos)
+
+x <- topics(lda_out10_pos)
+new.df_pos <- data.frame('response'=names(x), 'topic'=x, row.names=NULL)
+count(new.df_pos, topic)
+
+topics10_pos <- tidy(lda_out10_pos, matrix = "beta")
+
+top_terms_pos <- topics10_pos %>%
+  group_by(topic) %>%
+  top_n(5, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+
+top_terms_pos
+
+top_terms_pos %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
